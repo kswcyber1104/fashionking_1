@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix 패션왕",
+  "description": "나에게 꼭 맞는 옷차림을 찾아주는 패션왕 앱의 첫 화면(나에 대해)입니다.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
