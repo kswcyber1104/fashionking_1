@@ -132,8 +132,17 @@ async function fetchJsonWithTimeout<T>(
   url: string,
   timeoutMs: number,
   headers?: Record<string, string>,
+  externalSignal?: AbortSignal,
 ): Promise<T> {
   const controller = new AbortController();
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+  }
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -147,10 +156,15 @@ async function fetchJsonWithTimeout<T>(
     return (await response.json()) as T;
   } finally {
     clearTimeout(timer);
+    externalSignal?.removeEventListener('abort', onExternalAbort);
   }
 }
 
-async function fetchOpenMeteo(lat: number, lon: number): Promise<WeatherData> {
+async function fetchOpenMeteo(
+  lat: number,
+  lon: number,
+  signal?: AbortSignal,
+): Promise<WeatherData> {
   const params = new URLSearchParams({
     latitude: lat.toFixed(4),
     longitude: lon.toFixed(4),
@@ -163,7 +177,9 @@ async function fetchOpenMeteo(lat: number, lon: number): Promise<WeatherData> {
 
   const data = await fetchJsonWithTimeout<OpenMeteoResponse>(
     `https://api.open-meteo.com/v1/forecast?${params.toString()}`,
-    4500,
+    6000,
+    undefined,
+    signal,
   );
 
   if (
@@ -221,9 +237,13 @@ async function fetchOpenMeteo(lat: number, lon: number): Promise<WeatherData> {
   };
 }
 
-async function fetchWttr(lat: number, lon: number): Promise<WeatherData> {
+async function fetchWttr(
+  lat: number,
+  lon: number,
+  signal?: AbortSignal,
+): Promise<WeatherData> {
   const url = `https://wttr.in/${lat.toFixed(4)},${lon.toFixed(4)}?format=j1`;
-  const data = await fetchJsonWithTimeout<WttrResponse>(url, 5000);
+  const data = await fetchJsonWithTimeout<WttrResponse>(url, 6000, undefined, signal);
 
   const current = data.current_condition?.[0];
   const today = data.weather?.[0];
@@ -279,11 +299,20 @@ async function fetchWttr(lat: number, lon: number): Promise<WeatherData> {
   };
 }
 
-async function fetchMetNo(lat: number, lon: number): Promise<WeatherData> {
+async function fetchMetNo(
+  lat: number,
+  lon: number,
+  signal?: AbortSignal,
+): Promise<WeatherData> {
   const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`;
-  const data = await fetchJsonWithTimeout<MetNoResponse>(url, 5000, {
-    'User-Agent': 'FashionKingApp/1.0 (https://vercel.com)',
-  });
+  const data = await fetchJsonWithTimeout<MetNoResponse>(
+    url,
+    6000,
+    {
+      'User-Agent': 'FashionKingApp/1.0 (https://vercel.com)',
+    },
+    signal,
+  );
 
   const series = data.properties?.timeseries;
   if (!series || series.length === 0) {
@@ -353,21 +382,32 @@ async function fetchMetNo(lat: number, lon: number): Promise<WeatherData> {
   };
 }
 
+const WEATHER_CACHE_TTL_MS = 5 * 60 * 1000;
+const weatherCache = new Map<string, { data: WeatherData; expiresAt: number }>();
+
 export async function fetchServerWeather(
   lat: number,
   lon: number,
 ): Promise<WeatherData> {
-  try {
-    return await fetchOpenMeteo(lat, lon);
-  } catch {
-    // fallback to wttr.in
+  const cacheKey = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+  const cached = weatherCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
   }
 
+  const controller = new AbortController();
   try {
-    return await fetchWttr(lat, lon);
-  } catch {
-    // fallback to MET Norway
+    const data = await Promise.any([
+      fetchOpenMeteo(lat, lon, controller.signal),
+      fetchWttr(lat, lon, controller.signal),
+      fetchMetNo(lat, lon, controller.signal),
+    ]);
+    weatherCache.set(cacheKey, {
+      data,
+      expiresAt: Date.now() + WEATHER_CACHE_TTL_MS,
+    });
+    return data;
+  } finally {
+    controller.abort();
   }
-
-  return await fetchMetNo(lat, lon);
 }

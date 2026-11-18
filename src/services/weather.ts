@@ -161,6 +161,112 @@ export async function fetchOpenMeteoWeather(
   };
 }
 
+async function fetchWttrWeather(
+  lat: number,
+  lon: number,
+  signal?: AbortSignal,
+): Promise<WeatherData> {
+  const url = `https://wttr.in/${lat.toFixed(4)},${lon.toFixed(4)}?format=j1`;
+  const data = await fetchJsonWithTimeout<{
+    current_condition?: Array<{
+      temp_C?: string;
+      FeelsLikeC?: string;
+      weatherCode?: string;
+    }>;
+    weather?: Array<{
+      mintempC?: string;
+      maxtempC?: string;
+      hourly?: Array<{
+        time?: string;
+        chanceofrain?: string;
+      }>;
+    }>;
+  }>(url, 6000, signal);
+
+  const current = data.current_condition?.[0];
+  const today = data.weather?.[0];
+  if (!current || typeof current.temp_C === 'undefined') {
+    throw new Error('날씨 데이터가 올바르지 않아요.');
+  }
+
+  const currentTemp = Math.round(Number(current.temp_C));
+  const apparentTemp =
+    typeof current.FeelsLikeC !== 'undefined'
+      ? Math.round(Number(current.FeelsLikeC))
+      : currentTemp;
+  const minTemp =
+    today && typeof today.mintempC !== 'undefined'
+      ? Math.round(Number(today.mintempC))
+      : currentTemp;
+  const maxTemp =
+    today && typeof today.maxtempC !== 'undefined'
+      ? Math.round(Number(today.maxtempC))
+      : currentTemp;
+
+  let rainProb = 0;
+  if (today?.hourly && today.hourly.length > 0) {
+    const kstHourStr = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Seoul',
+      hour: 'numeric',
+      hour12: false,
+    }).format(new Date());
+    const kstHour = Number(kstHourStr) * 100;
+    let closest = today.hourly[0];
+    let minDiff = Infinity;
+    for (const slot of today.hourly) {
+      const slotTime = Number(slot.time ?? 0);
+      const diff = Math.abs(slotTime - kstHour);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = slot;
+      }
+    }
+    rainProb = Math.round(Number(closest?.chanceofrain ?? 0));
+  }
+
+  const code = Number(current.weatherCode);
+  let label = '구름 조금';
+  let emoji = '⛅';
+  if (code === 113) {
+    label = '맑음';
+    emoji = '☀️';
+  } else if (code === 116) {
+    label = '구름 조금';
+    emoji = '⛅';
+  } else if (code === 119 || code === 122) {
+    label = '흐림';
+    emoji = '☁️';
+  } else if (code === 143 || code === 248 || code === 260) {
+    label = '안개';
+    emoji = '🌫️';
+  } else if ([176, 263, 266, 281, 284, 293, 296, 353].includes(code)) {
+    label = '이슬비';
+    emoji = '🌦️';
+  } else if ([299, 302, 305, 308, 311, 314, 356, 359].includes(code)) {
+    label = '비';
+    emoji = '🌧️';
+  } else if ([179, 182, 185, 317, 320, 362, 365].includes(code)) {
+    label = '진눈깨비';
+    emoji = '🌨️';
+  } else if ([227, 230, 323, 326, 329, 332, 335, 338, 368, 371, 374, 377].includes(code)) {
+    label = '눈';
+    emoji = '❄️';
+  } else if ([200, 386, 389, 392, 395].includes(code)) {
+    label = '천둥번개';
+    emoji = '⛈️';
+  }
+
+  return {
+    currentTemp,
+    apparentTemp,
+    minTemp,
+    maxTemp,
+    rainProbability: Number.isFinite(rainProb) ? rainProb : 0,
+    conditionLabel: label,
+    conditionEmoji: emoji,
+  };
+}
+
 export async function fetchWeather(
   lat: number,
   lon: number,
@@ -172,10 +278,10 @@ export async function fetchWeather(
   });
 
   try {
-    // 1차: Vercel Serverless Function(/api/weather) 프록시를 통해 CORS 없이 조회
+    // 1차: 서버 프록시(/api/weather)를 통해 조회
     const data = await fetchJsonWithTimeout<WeatherData>(
       buildApiUrl(`/api/weather?${params.toString()}`),
-      7000,
+      12000,
       signal,
     );
     if (typeof data.currentTemp === 'number') {
@@ -185,6 +291,14 @@ export async function fetchWeather(
     if (signal?.aborted) throw new Error('ABORTED');
   }
 
-  // 2차: 서버 프록시 실패 시 CORS가 허용된 Open-Meteo 직접 호출로 폴백
-  return await fetchOpenMeteoWeather(lat, lon, signal);
+  // 2차: 서버 프록시 실패 시 CORS가 허용된 공개 날씨 API를 병렬 호출로 폴백
+  try {
+    return await Promise.any([
+      fetchOpenMeteoWeather(lat, lon, signal),
+      fetchWttrWeather(lat, lon, signal),
+    ]);
+  } catch {
+    if (signal?.aborted) throw new Error('ABORTED');
+    throw new Error('날씨를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.');
+  }
 }
