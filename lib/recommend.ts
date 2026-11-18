@@ -175,7 +175,12 @@ export async function generateOutfitRecommendation(
       throw new RecommendServiceError(502, 'AI 응답이 비어 있습니다.');
     }
 
-    const parsed = JSON.parse(rawText) as RawGeminiOutfit;
+    const cleanedText = rawText
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
+
+    const parsed = JSON.parse(cleanedText) as RawGeminiOutfit;
     if (
       !parsed.겉옷 ||
       !parsed.상의 ||
@@ -211,6 +216,20 @@ export async function generateOutfitRecommendation(
       throw new RecommendServiceError(
         504,
         '추천 응답이 지연되고 있어요. 잠시 후 다시 눌러 주세요',
+      );
+    }
+
+    if (errObj?.status === 401 || errObj?.status === 403) {
+      throw new RecommendServiceError(
+        500,
+        '서버의 GEMINI_API_KEY가 올바르지 않거나 권한이 없습니다.',
+      );
+    }
+
+    if (errObj?.status === 429) {
+      throw new RecommendServiceError(
+        429,
+        '요청이 많아 잠시 기다려야 해요. 잠시 후 다시 눌러 주세요',
       );
     }
 

@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleCorsPreflight } from '../lib/cors';
-import { fetchServerWeather } from '../lib/weather';
+import { handleCorsPreflight } from '../lib/cors.js';
+import { fetchServerWeather } from '../lib/weather.js';
 
 export default async function handler(
   req: VercelRequest,

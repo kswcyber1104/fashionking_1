@@ -93,8 +93,12 @@ export default function App() {
         rainProbability: weatherData.rainProbability,
       });
       setRecommendation(result);
-    } catch {
-      setRecommendError('지금은 추천할 수 없어요. 잠시 후 다시 눌러 주세요');
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : '지금은 추천할 수 없어요. 잠시 후 다시 눌러 주세요';
+      setRecommendError(message);
     } finally {
       setIsRecommending(false);
     }

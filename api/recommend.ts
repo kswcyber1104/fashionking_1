@@ -1,10 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleCorsPreflight } from '../lib/cors';
+import { handleCorsPreflight } from '../lib/cors.js';
 import {
   generateOutfitRecommendation,
-  RecommendRequestBody,
+  type RecommendRequestBody,
   RecommendServiceError,
-} from '../lib/recommend';
+} from '../lib/recommend.js';
 
 function parseBody(rawBody: unknown): RecommendRequestBody {
   if (!rawBody) return {};

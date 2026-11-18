@@ -3,13 +3,13 @@ import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { handleCorsPreflight } from './lib/cors';
+import { handleCorsPreflight } from './lib/cors.js';
 import {
   generateOutfitRecommendation,
-  RecommendRequestBody,
+  type RecommendRequestBody,
   RecommendServiceError,
-} from './lib/recommend';
-import { fetchServerWeather } from './lib/weather';
+} from './lib/recommend.js';
+import { fetchServerWeather } from './lib/weather.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

@@ -24,7 +24,18 @@ export async function fetchOutfitRecommendation(
   });
 
   if (!response.ok) {
-    throw new Error('지금은 추천할 수 없어요. 잠시 후 다시 눌러 주세요');
+    let serverMessage: string | undefined;
+    try {
+      const errorBody = (await response.json()) as { error?: unknown };
+      if (typeof errorBody?.error === 'string' && errorBody.error.trim()) {
+        serverMessage = errorBody.error.trim();
+      }
+    } catch {
+      // ignore non-JSON error responses (e.g. HTML/plain-text gateway errors)
+    }
+    throw new Error(
+      serverMessage || '지금은 추천할 수 없어요. 잠시 후 다시 눌러 주세요',
+    );
   }
 
   const result = (await response.json()) as Partial<OutfitRecommendation>;
